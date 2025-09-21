@@ -1,0 +1,90 @@
+import os
+import requests
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from pydantic import BaseModel
+from transformers import pipeline
+from PIL import Image
+import pytesseract
+
+# ========== CONFIG ==========
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")  # Free GNews API key
+
+# HuggingFace free model for Natural Language Inference
+hf_nli = pipeline("text-classification", model="facebook/bart-large-mnli")
+
+# FastAPI app
+app = FastAPI()
+
+class VerifyRequest(BaseModel):
+    text: str
+
+class VerifyResponse(BaseModel):
+    claim: str
+    score: float
+    explanation: str
+    sources: list[str]
+
+# ========== OCR ==========
+def extract_text_from_image(image_path: str) -> str:
+    return pytesseract.image_to_string(Image.open(image_path))
+
+# ========== NEWS FETCH ==========
+def fetch_news(query: str, max_results: int = 5):
+    if not GNEWS_API_KEY:
+        return []
+    url = f"https://gnews.io/api/v4/search?q={query}&token={GNEWS_API_KEY}&lang=en&max={max_results}"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        return []
+    data = resp.json()
+    return data.get("articles", [])
+
+# ========== CLAIM VERIFICATION ==========
+def verify_with_huggingface(claim: str, articles: list[dict]) -> VerifyResponse:
+    scores = []
+    sources = []
+
+    for art in articles:
+        content = (art.get("title","") + " " + art.get("description","")).strip()
+        if not content:
+            continue
+        result = hf_nli(f"{claim} </s> {content}")[0]
+        if result["label"] == "ENTAILMENT":
+            scores.append(result["score"] * 100)
+            sources.append(art.get("url"))
+
+    avg_score = round(sum(scores) / len(scores), 2) if scores else 0.0
+    return VerifyResponse(
+        claim=claim,
+        score=avg_score,
+        explanation="Score shows % match between claim and news articles (free HuggingFace model).",
+        sources=sources
+    )
+
+# ========== API ENDPOINTS ==========
+@app.post("/verify-text", response_model=VerifyResponse)
+def verify_text(req: VerifyRequest):
+    claim = req.text.strip()
+    if not claim:
+        raise HTTPException(status_code=400, detail="Empty claim.")
+
+    articles = fetch_news(claim)
+    return verify_with_huggingface(claim, articles)
+
+@app.post("/verify-image", response_model=VerifyResponse)
+async def verify_image(file: UploadFile = File(...)):
+    # Save uploaded file temporarily
+    temp_path = f"temp_{file.filename}"
+    with open(temp_path, "wb") as f:
+        f.write(await file.read())
+
+    # OCR to extract claim text
+    claim_text = extract_text_from_image(temp_path)
+
+    # Fetch and verify
+    articles = fetch_news(claim_text)
+    result = verify_with_huggingface(claim_text, articles)
+
+    os.remove(temp_path)  # cleanup
+
+    return result
