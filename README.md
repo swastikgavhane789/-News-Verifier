@@ -13,11 +13,13 @@ Floating Button UI : Quick access to verification anytime, anywhere.
 Cross-Platform Support : Works seamlessly on both Android and iOS.
 
 APP WORKFLOW-
+
 User clicks the floating button overlay.
 App captures either text input or text extracted from images.
 Sends data to the backend API (/verify-text or /verify-image).
 
 BACKEND-
+
 Fetches real-time news articles using GNews API.
 Runs AI model to compare claim vs trusted sources.
 Returns truth score, explanation, and sources.
