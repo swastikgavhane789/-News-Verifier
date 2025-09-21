@@ -1,0 +1,14 @@
+floating-news-verifier-app/
+│
+├── lib/
+│   ├── main.dart
+│   ├── services/
+│   │   └── api_service.dart
+│   └── screens/
+│       └── home_screen.dart
+│
+├── assets/                # For logos/icons (optional)
+│
+├── pubspec.yaml
+├── .gitignore
+└── README.md
